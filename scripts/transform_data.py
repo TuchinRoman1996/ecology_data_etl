@@ -10,7 +10,7 @@ def string_to_decimal(value):
         return decimal_value
 
 
-def transform_data_function_h(db_params, **kwargs):
+def transform_data_function_h(**kwargs):
     data = kwargs['ti'].xcom_pull(key='extracted_data_hist')
     nvos_id = kwargs['ti'].xcom_pull(key='nvos_id')
     df = pd.DataFrame(data['data'], columns=data['col'])
@@ -28,9 +28,11 @@ def transform_data_function_h(db_params, **kwargs):
     df_address['street'] = df['org_address'].str.extract(r',\s*((пр-кт|ул\.|ул|улица|пр-д)\s*[А-Яа-я]*),?|,\s*(['
                                                          r'А-Яа-я]*\s*(улица|ул\.|ул)),?')[0]
     df_address['house_number'] = \
-    df['org_address'].str.extract(r',\s*((д|д\.|дом)\s*\d{1,4}[а-я]*)', flags=re.IGNORECASE)[0]
+        df['org_address'].str.extract(r',\s*((д|д\.|дом)\s*\d{1,4}[а-я]*)', flags=re.IGNORECASE)[0]
 
-    df_address['id'] = df_address[['postcode', 'region', 'locality', 'street', 'house_number']].apply(tuple, axis=1).astype('category').cat.codes + (100000 if nvos_id else 1)
+    df_address['id'] = df_address[['postcode', 'region', 'locality', 'street', 'house_number']].apply(tuple,
+                                                                                                      axis=1).astype(
+        'category').cat.codes + (100000 if nvos_id else 1)
 
     df_address_deduplicate = df_address[['id',
                                          'postcode',
@@ -66,13 +68,14 @@ def transform_data_function_h(db_params, **kwargs):
         df_organization.set_index('nvos_id')['id'])
     df_organization_x_address['address_id'] = df_organization_x_address['nvos_id'].map(
         df_address.set_index('nvos_id')['id'])
-    df_organization_x_address['id'] = df_organization_x_address[['org_id', 'address_id']].apply(tuple, axis=1).astype('category').cat.codes + (
-        100000 if nvos_id else 1)
+    df_organization_x_address['id'] = df_organization_x_address[['org_id', 'address_id']].apply(tuple, axis=1).astype(
+        'category').cat.codes + (
+                                          100000 if nvos_id else 1)
 
     df_organization_x_address_uniq = df_organization_x_address[[
-            'id',
-            'org_id',
-            'address_id'
+        'id',
+        'org_id',
+        'address_id'
     ]].drop_duplicates()
 
     organizations_x_address = [tuple(x) for x in df_organization_x_address_uniq.itertuples(index=False, name=None)]
