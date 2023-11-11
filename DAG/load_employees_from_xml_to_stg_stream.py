@@ -22,7 +22,7 @@ def get_metadata(**kwargs):
     metadata = pg_hook.get_first("""
         SELECT request_id, filename
         FROM stg."DWH_DSO_2STGmetadata"
-        WHERE table_name = 'DWH_DSO_2STGmetadata'
+        WHERE table_name = 'DWH_DSO_1STGemployees'
         AND status = 'RUNNING';
     """)
 
@@ -125,7 +125,7 @@ with DAG('load_employees_from_xml_to_stg_stream', default_args=default_args,
         op_kwargs={
             'ftp_conn_id': 'ftp_chtd',
             'postgres_conn_id': 'test_db',
-            'batch_size': 1000
+            'batch_size': 16000
         },
     )
 

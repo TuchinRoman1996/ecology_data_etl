@@ -74,14 +74,14 @@ def select_branch(**kwargs):
             print(f'Новый файл region: {file}')
             load_metadata_to_staging(file, 'DWH_AO_0regions')
             return 'trigger_load_set_regions_to_stg'
-        # elif 'company' in str(file):
-        #     print(f'Новый файл company: {file}')
-        #     load_metadata_to_staging(file, 'DWH_AO_0companies')
-        #     return ''
-        # elif 'employee' in str(file):
-        #     print(f'Новый файл employee: {file}')
-        #     load_metadata_to_staging(file, 'DWH_DSO_1STGemployees')
-        #     return 'trigger_load_employee_to_stg'
+        elif 'companies' in str(file):
+            print(f'Новый файл company: {file}')
+            load_metadata_to_staging(file, 'DWH_AO_0companies')
+            return 'trigger_load_set_companies_to_stg'
+        elif 'employee' in str(file):
+            print(f'Новый файл employee: {file}')
+            load_metadata_to_staging(file, 'DWH_DSO_1STGemployees')
+            return 'trigger_load_employee_to_stg'
 
     return branches
 
@@ -126,5 +126,11 @@ with DAG('ftp_monitoring_dag', default_args=default_args, schedule_interval='@on
         trigger_dag_id='load_set_regions_from_xml_to_stg',
     )
 
+    trigger_load_set_companies_to_stg = TriggerDagRunOperator(
+        task_id='trigger_load_set_companies_to_stg',
+        trigger_dag_id='load_set_companies_from_xml_to_stg',
+    )
+
     get_filename_list_task >> ftp_sensor_task >> branch_task >> [trigger_load_employee_to_stg,
-                                                                 trigger_load_set_regions_to_stg]
+                                                                 trigger_load_set_regions_to_stg,
+                                                                 trigger_load_set_companies_to_stg]
