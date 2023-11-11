@@ -1,18 +1,12 @@
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.providers.ftp.hooks.ftp import FTPHook
-from airflow.sensors.base import BaseSensorOperator
 from airflow.utils.dates import days_ago
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from airflow.exceptions import AirflowException
 from lxml import etree
-import uuid
 from io import BytesIO
-
-import cProfile
-
-profiler = cProfile.Profile()
 
 default_args = {
     'owner': 'RTuchin',
@@ -20,6 +14,19 @@ default_args = {
     'start_date': days_ago(0),
     'catchup': 'false'
 }
+
+
+def get_metadata(**kwargs):
+    pg_hook = PostgresHook('test_db')
+    metadata = pg_hook.get_first("""
+        SELECT request_id, filename
+        FROM stg."DWH_DSO_2STGmetadata"
+        WHERE table_name = 'DWH_DSO_2STGmetadata'
+        AND status = 'RUNNING';
+    """)
+
+    kwargs['ti'].xcom_push(key='request_id', value=metadata[0])
+    kwargs['ti'].xcom_push(key='filename', value=metadata[1])
 
 
 def update_metadata_status(status, request_id, pg_hook):
@@ -35,82 +42,13 @@ def update_metadata_status(status, request_id, pg_hook):
         print(f"Failed to update metadata status: {str(e)}")
 
 
-def get_filename_list(**kwargs):
-    db_hook = PostgresHook(postgres_conn_id='test_db')
-
-    sql = """
-        SELECT filename
-        FROM stg."DWH_DSO_2STGmetadata";
-    """
-    results = db_hook.get_records(sql)
-    if results:
-        filenames = set(result[0] for result in results)
-    else:
-        filenames = set()
-
-    print(f'Список файлов в БД:\n{filenames}')
-    kwargs['ti'].xcom_push(key='filename_list', value=filenames)
-
-
-class CustomFTPSensor(BaseSensorOperator):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.ftp_hook = None
-        self.uploaded_files = None
-        self.ftp_files = None
-
-    def poke(self, context):
-        self.ftp_hook = FTPHook(ftp_conn_id='ftp_chtd')
-        self.uploaded_files = context['ti'].xcom_pull(key='filename_list')
-
-        try:
-            ftp_files = set(self.ftp_hook.list_directory("for_chtd/test_kxd_glavnivc"))
-            print(f'Список файлов в FTP:\n{ftp_files}')
-            new_files = ftp_files - self.uploaded_files
-
-            if new_files:
-                for file in new_files:
-                    if 'employee' in str(file):
-                        print(f'Новый файл employee: {file}')
-                        context['ti'].xcom_push(key='employee_filename', value=file)
-                        return True
-                    elif 'company' in str(file):
-                        print(f'Новый файл company: {file}')
-                    elif 'region' in str(file):
-                        print(f'Новый файл region: {file}')
-                    else:
-                        return False
-            else:
-                return False
-
-        except AirflowException as e:
-            raise AirflowException(f"Ошибка сенсора FTP: {str(e)}")
-        finally:
-            self.ftp_hook.close_conn()
-
-
-def load_metadata_to_staging(**kwargs):
-    request_id = str(uuid.uuid4())
-    table_name = 'DWH_DSO_2STGmetadata'
-    filename = kwargs['ti'].xcom_pull(key='employee_filename')
-    pg_hook = PostgresHook(postgres_conn_id='test_db')
-
-    sql = f"""
-        INSERT INTO stg."DWH_DSO_2STGmetadata"(request_id, table_name, filename)
-        VALUES('{request_id}', '{table_name}', '{filename}');
-    """
-    kwargs['ti'].xcom_push(key='request_id', value=request_id)
-    pg_hook.run(sql)
-
-
-profiler.enable()
-
-
 def process_large_xml_and_insert_to_db(ftp_conn_id, postgres_conn_id, batch_size, **kwargs):
     ftp_hook = FTPHook(ftp_conn_id)
     pg_hook = PostgresHook(postgres_conn_id)
-    filename = kwargs['ti'].xcom_pull(key='employee_filename')
+    filename = kwargs['ti'].xcom_pull(key='filename')
     request_id = kwargs['ti'].xcom_pull(key='request_id')
+    print(f'Имя файла: {filename}')
+    print(f'Идентификатор запроса: {request_id}')
 
     with BytesIO() as xml_buffer:
         ftp_hook.retrieve_file(f'for_chtd/test_kxd_glavnivc/{filename}', xml_buffer)
@@ -173,25 +111,12 @@ def insert_records_to_db(records, pg_hook, batch_size):
     )
 
 
-profiler.disable()
-profiler.print_stats(sort='cumulative')
-
 with DAG('load_employees_from_xml_to_stg_stream', default_args=default_args,
          schedule_interval='@once', catchup=False, tags=['test_db']) as dag:
-
-    get_filename_list_task = PythonOperator(
-        task_id='get_filename_list',
-        python_callable=get_filename_list
-    )
-
-    ftp_sensor_task = CustomFTPSensor(
-        task_id='ftp_sensor',
-        poke_interval=30
-    )
-
-    load_metadata_to_staging_task = PythonOperator(
-        task_id='load_metadata_to_staging',
-        python_callable=load_metadata_to_staging,
+    get_metadata_task = PythonOperator(
+        task_id='get_metadata',
+        python_callable=get_metadata,
+        provide_context=True
     )
 
     process_large_xml_task = PythonOperator(
@@ -200,14 +125,13 @@ with DAG('load_employees_from_xml_to_stg_stream', default_args=default_args,
         op_kwargs={
             'ftp_conn_id': 'ftp_chtd',
             'postgres_conn_id': 'test_db',
-            'batch_size': 16000
+            'batch_size': 10000
         },
     )
 
     trigger_dag_operator_task = TriggerDagRunOperator(
         task_id='trigger_stream_dag',
-        trigger_dag_id='load_employees_from_xml_to_stg_stream',
+        trigger_dag_id='ftp_monitoring_dag'
     )
 
-    get_filename_list_task >> ftp_sensor_task >> load_metadata_to_staging_task >> process_large_xml_task
-    process_large_xml_task >> trigger_dag_operator_task
+    get_metadata_task >> process_large_xml_task >> trigger_dag_operator_task
