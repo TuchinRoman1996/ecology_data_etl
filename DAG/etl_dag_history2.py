@@ -156,34 +156,53 @@ with DAG('History_2', default_args=default_args, schedule_interval='@once', sche
         op_args=[target_db_params]
     )
 
-    load_to_nds = PostgresOperator(
-        task_id='load_to_nds',
+    load_dim_resort = PostgresOperator(
+        task_id='load_dim_resort',
         postgres_conn_id='target_db',
         database='ecology_analytics',
-        sql="""
-            select  nds.insert_dim_resort();
-            select  nds.insert_dim_seller();
-            select  nds.insert_dim_service();
-            select  nds.insert_dim_country();
-            select  nds.insert_dim_service_line();
-            select  nds.insert_dim_customer();
-            select  nds.insert_fact_sale_data();
-        """
+        sql="select nds.insert_dim_resort();"
     )
 
-    load_to_ods = PostgresOperator(
-        task_id='load_to_ods',
+    load_dim_seller = PostgresOperator(
+        task_id='load_dim_seller',
         postgres_conn_id='target_db',
         database='ecology_analytics',
-        sql="""
-            select  ods.insert_dim_resort();
-            select  ods.insert_dim_seller();
-            select  ods.insert_dim_service();
-            select  ods.insert_dim_country();
-            select  ods.insert_dim_service_line();
-            select  ods.insert_dim_customer();
-            select  ods.insert_fact_sale_data();
-        """
+        sql="select nds.insert_dim_seller();"
+    )
+
+    load_dim_service = PostgresOperator(
+        task_id='load_dim_service',
+        postgres_conn_id='target_db',
+        database='ecology_analytics',
+        sql="select nds.insert_dim_service();"
+    )
+
+    load_dim_country = PostgresOperator(
+        task_id='load_dim_country',
+        postgres_conn_id='target_db',
+        database='ecology_analytics',
+        sql="select nds.insert_dim_country();"
+    )
+
+    load_dim_service_line = PostgresOperator(
+        task_id='load_dim_service_line',
+        postgres_conn_id='target_db',
+        database='ecology_analytics',
+        sql="select nds.insert_dim_service_line();"
+    )
+
+    load_dim_customer = PostgresOperator(
+        task_id='load_dim_customer',
+        postgres_conn_id='target_db',
+        database='ecology_analytics',
+        sql="select nds.insert_dim_customer();"
+    )
+
+    load_fact_sale_data = PostgresOperator(
+        task_id='load_fact_sale_data',
+        postgres_conn_id='target_db',
+        database='ecology_analytics',
+        sql="select nds.insert_fact_sale_data();"
     )
 
     load_to_dds_sales_with_moving_average = PostgresOperator(
@@ -197,7 +216,7 @@ with DAG('History_2', default_args=default_args, schedule_interval='@once', sche
                     EXTRACT(YEAR FROM fs.invoice_date) AS sale_year,
                     EXTRACT(MONTH FROM fs.invoice_date) AS sale_month,
                     SUM(fs.price) AS total_sales
-                FROM ods.fact_sale fs
+                FROM nds.fact_sale fs
                 GROUP BY sale_year, sale_month
             )
             INSERT INTO dds.sales_with_moving_average (sale_year, sale_month, total_sales, moving_average)
@@ -217,7 +236,7 @@ with DAG('History_2', default_args=default_args, schedule_interval='@once', sche
                     EXTRACT(YEAR FROM fs.invoice_date) AS sale_year,
                     EXTRACT(MONTH FROM fs.invoice_date) AS sale_month,
                     SUM(fs.price) AS total_sales
-                FROM ods.fact_sale fs
+                FROM nds.fact_sale fs
                 GROUP BY sale_year, sale_month
             )
             INSERT INTO dds.sales_growth_by_month (sale_year, sale_month, current_month_sales, previous_month_sales, sales_growth)
@@ -247,7 +266,7 @@ with DAG('History_2', default_args=default_args, schedule_interval='@once', sche
                 ELSE 'Неизвестный день' 
               END AS day_of_week,
               AVG(fs.price) AS average_sale
-            FROM ods.fact_sale fs
+            FROM nds.fact_sale fs
             GROUP BY day_of_week;
         """
     )
@@ -262,7 +281,7 @@ with DAG('History_2', default_args=default_args, schedule_interval='@once', sche
             SELECT EXTRACT(YEAR FROM fs.invoice_date) AS sale_year,
                 EXTRACT(MONTH FROM fs.invoice_date) AS sale_month,
                 SUM(fs.price) AS total_sales
-            FROM ods.fact_sale fs
+            FROM nds.fact_sale fs
             GROUP BY sale_year, sale_month;
         """
     )
@@ -275,8 +294,8 @@ with DAG('History_2', default_args=default_args, schedule_interval='@once', sche
             truncate dds.average_sales_by_seller;
             INSERT INTO dds.average_sales_by_seller (sales_person, average_sale)
             SELECT ds.sales_person, AVG(fs.price) AS average_sale
-            FROM ods.fact_sale fs
-            JOIN ods.dim_seller ds ON fs.seller_id = ds.seller_id
+            FROM nds.fact_sale fs
+            JOIN nds.dim_seller ds ON fs.seller_id = ds.seller_id
             GROUP BY ds.sales_person;
         """
     )
@@ -289,8 +308,8 @@ with DAG('History_2', default_args=default_args, schedule_interval='@once', sche
             truncate dds.sales_by_service;
             INSERT INTO dds.sales_by_service (service, total_sales)
             SELECT ds.service, SUM(fs.price) AS total_sales
-            FROM ods.fact_sale fs
-            JOIN ods.dim_service ds ON fs.service_id = ds.service_id
+            FROM nds.fact_sale fs
+            JOIN nds.dim_service ds ON fs.service_id = ds.service_id
             GROUP BY ds.service;
         """
     )
@@ -312,7 +331,7 @@ with DAG('History_2', default_args=default_args, schedule_interval='@once', sche
                 ELSE 'Unknown'
             END AS age_group,
             COUNT(*) AS customer_count
-        FROM ods.dim_customer dc
+        FROM nds.dim_customer dc
         WHERE dc.age BETWEEN 18 AND 80
         GROUP BY age_group;
         """
@@ -326,9 +345,9 @@ with DAG('History_2', default_args=default_args, schedule_interval='@once', sche
             truncate dds.sales_by_country_and_region;
             INSERT INTO dds.sales_by_country_and_region (country, resort, invoice_date, total_sales)
             SELECT dc.country, dr.resort, fs.invoice_date, SUM(fs.price) AS total_sales
-            FROM ods.fact_sale fs
-            JOIN ods.dim_country dc ON fs.country_id = dc.country_id
-            JOIN ods.dim_resort dr ON fs.resort_id = dr.resort_id
+            FROM nds.fact_sale fs
+            JOIN nds.dim_country dc ON fs.country_id = dc.country_id
+            JOIN nds.dim_resort dr ON fs.resort_id = dr.resort_id
             GROUP BY dc.country, dr.resort, fs.invoice_date;
         """
     )
@@ -341,35 +360,34 @@ with DAG('History_2', default_args=default_args, schedule_interval='@once', sche
             truncate dds.sales_by_employee;
             INSERT INTO dds.sales_by_employee (sales_person, invoice_date, total_price)
             SELECT sales_person, invoice_date, SUM(price)
-            FROM ods.fact_sale fs2
-            JOIN ods.dim_seller ds ON fs2.seller_id = ds.seller_id
+            FROM nds.fact_sale fs2
+            JOIN nds.dim_seller ds ON fs2.seller_id = ds.seller_id
             GROUP BY sales_person, invoice_date;
         """
     )
 
-    extract_from_postgres_ps2 >> load_to_stg_age_group >> load_to_nds
-    extract_from_postgres_ps2 >> load_to_stg_city >> load_to_nds
-    extract_from_postgres_ps2 >> load_to_stg_country >> load_to_nds
-    extract_from_postgres_ps2 >> load_to_stg_customer >> load_to_nds
-    extract_from_postgres_ps2 >> load_to_stg_invoice_line >> load_to_nds
-    extract_from_postgres_ps2 >> load_to_stg_region >> load_to_nds
-    extract_from_postgres_ps2 >> load_to_stg_region_sline >> load_to_nds
-    extract_from_postgres_ps2 >> load_to_stg_reservation_line >> load_to_nds
-    extract_from_postgres_ps2 >> load_to_stg_reservations >> load_to_nds
-    extract_from_postgres_ps2 >> load_to_stg_resort >> load_to_nds
-    extract_from_postgres_ps2 >> load_to_stg_sales >> load_to_nds
-    extract_from_postgres_ps2 >> load_to_stg_sales_person >> load_to_nds
-    extract_from_postgres_ps2 >> load_to_stg_sales_service >> load_to_nds
-    extract_from_postgres_ps2 >> load_to_stg_sales_service_line >> load_to_nds
-    load_to_nds >> load_to_ods
-    load_to_ods >> load_to_dds_sales_with_moving_average
-    load_to_ods >> load_to_dds_sales_growth_by_month
-    load_to_ods >> load_to_dds_average_sales_by_day_of_week
-    load_to_ods >> load_to_dds_sales_trends_by_month
-    load_to_ods >> load_to_dds_average_sales_by_seller
-    load_to_ods >> load_to_dds_sales_by_service
-    load_to_ods >> load_to_dds_customer_age_groups
-    load_to_ods >> load_to_dds_sales_by_country_and_region
-    load_to_ods >> load_to_dds_sales_by_employee
+    extract_from_postgres_ps2 >> load_to_stg_age_group
+    extract_from_postgres_ps2 >> load_to_stg_city
+    extract_from_postgres_ps2 >> load_to_stg_country >> load_dim_country >> load_fact_sale_data
+    extract_from_postgres_ps2 >> load_to_stg_customer >> load_dim_customer >> load_fact_sale_data
+    extract_from_postgres_ps2 >> load_to_stg_invoice_line >> load_fact_sale_data
+    extract_from_postgres_ps2 >> load_to_stg_region
+    extract_from_postgres_ps2 >> load_to_stg_region_sline
+    extract_from_postgres_ps2 >> load_to_stg_reservation_line
+    extract_from_postgres_ps2 >> load_to_stg_reservations
+    extract_from_postgres_ps2 >> load_to_stg_resort >> load_dim_resort >> load_fact_sale_data
+    extract_from_postgres_ps2 >> load_to_stg_sales
+    extract_from_postgres_ps2 >> load_to_stg_sales_person >> load_dim_seller >> load_fact_sale_data
+    extract_from_postgres_ps2 >> load_to_stg_sales_service >> load_dim_service >> load_fact_sale_data
+    extract_from_postgres_ps2 >> load_to_stg_sales_service_line >> load_dim_service_line >> load_fact_sale_data
+    load_fact_sale_data >> load_to_dds_sales_with_moving_average
+    load_fact_sale_data >> load_to_dds_sales_growth_by_month
+    load_fact_sale_data >> load_to_dds_average_sales_by_day_of_week
+    load_fact_sale_data >> load_to_dds_sales_trends_by_month
+    load_fact_sale_data >> load_to_dds_average_sales_by_seller
+    load_fact_sale_data >> load_to_dds_sales_by_service
+    load_fact_sale_data >> load_to_dds_customer_age_groups
+    load_fact_sale_data >> load_to_dds_sales_by_country_and_region
+    load_fact_sale_data >> load_to_dds_sales_by_employee
 
 

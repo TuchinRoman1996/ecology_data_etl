@@ -8,6 +8,7 @@ from airflow.exceptions import AirflowException
 from lxml import etree
 from io import BytesIO
 
+
 default_args = {
     'owner': 'RTuchin',
     'depends_on_past': False,
@@ -34,8 +35,7 @@ def update_metadata_status(status, request_id, pg_hook):
         sql = f"""
             UPDATE stg."DWH_DSO_2STGmetadata"
             SET status = '{status}'
-            WHERE request_id = '{request_id}'
-            and status != 'FAILED';
+            WHERE request_id = '{request_id}';
         """
         pg_hook.run(sql)
     except Exception as e:
@@ -125,7 +125,7 @@ with DAG('load_employees_from_xml_to_stg_stream', default_args=default_args,
         op_kwargs={
             'ftp_conn_id': 'ftp_chtd',
             'postgres_conn_id': 'test_db',
-            'batch_size': 10000
+            'batch_size': 1000
         },
     )
 

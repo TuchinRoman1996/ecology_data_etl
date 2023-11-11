@@ -21,7 +21,8 @@ def get_filename_list(**kwargs):
 
     sql = """
         SELECT filename
-        FROM stg."DWH_DSO_2STGmetadata";
+        FROM stg."DWH_DSO_2STGmetadata"
+        WHERE status not in ('RUNNING', 'FAILED');
     """
     results = db_hook.get_records(sql)
     if results:
@@ -65,26 +66,28 @@ class CustomFTPSensor(BaseSensorOperator):
 def select_branch(**kwargs):
     new_files = list(kwargs['ti'].xcom_pull(key='new_files'))
     print(f'Получил новые файлы: {new_files}')
+
+    branches = []
+
     for file in new_files:
         if 'region' in str(file):
             print(f'Новый файл region: {file}')
-            load_metadata_to_staging(file)
-            return ''
-        elif 'company' in str(file):
-            print(f'Новый файл company: {file}')
-            load_metadata_to_staging(file)
-            return ''
-        elif 'employee' in str(file):
-            print(f'Новый файл employee: {file}')
-            load_metadata_to_staging(file)
-            return 'trigger_load_employee_to_stg'
-        else:
-            return False
+            load_metadata_to_staging(file, 'DWH_AO_0regions')
+            return 'trigger_load_set_regions_to_stg'
+        # elif 'company' in str(file):
+        #     print(f'Новый файл company: {file}')
+        #     load_metadata_to_staging(file, 'DWH_AO_0companies')
+        #     return ''
+        # elif 'employee' in str(file):
+        #     print(f'Новый файл employee: {file}')
+        #     load_metadata_to_staging(file, 'DWH_DSO_1STGemployees')
+        #     return 'trigger_load_employee_to_stg'
+
+    return branches
 
 
-def load_metadata_to_staging(filename):
+def load_metadata_to_staging(filename, table_name):
     request_id = str(uuid.uuid4())
-    table_name = 'DWH_DSO_2STGmetadata'
     print(f'Получил название файла: {filename}')
     pg_hook = PostgresHook(postgres_conn_id='test_db')
 
@@ -118,4 +121,10 @@ with DAG('ftp_monitoring_dag', default_args=default_args, schedule_interval='@on
         trigger_dag_id='load_employees_from_xml_to_stg_stream',
     )
 
-    get_filename_list_task >> ftp_sensor_task >> branch_task >> [trigger_load_employee_to_stg]
+    trigger_load_set_regions_to_stg = TriggerDagRunOperator(
+        task_id='trigger_load_set_regions_to_stg',
+        trigger_dag_id='load_set_regions_from_xml_to_stg',
+    )
+
+    get_filename_list_task >> ftp_sensor_task >> branch_task >> [trigger_load_employee_to_stg,
+                                                                 trigger_load_set_regions_to_stg]
