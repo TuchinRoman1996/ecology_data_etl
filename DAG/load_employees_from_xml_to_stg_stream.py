@@ -8,7 +8,11 @@ from airflow.providers.postgres.hooks.postgres import PostgresHook
 from airflow.exceptions import AirflowException
 from lxml import etree
 import uuid
-import io
+from io import BytesIO
+
+import cProfile
+
+profiler = cProfile.Profile()
 
 default_args = {
     'owner': 'RTuchin',
@@ -23,7 +27,8 @@ def update_metadata_status(status, request_id, pg_hook):
         sql = f"""
             UPDATE stg."DWH_DSO_2STGmetadata"
             SET status = '{status}'
-            WHERE request_id = '{request_id}';
+            WHERE request_id = '{request_id}'
+            and status != 'FAILED';
         """
         pg_hook.run(sql)
     except Exception as e:
@@ -98,19 +103,22 @@ def load_metadata_to_staging(**kwargs):
     pg_hook.run(sql)
 
 
+profiler.enable()
+
+
 def process_large_xml_and_insert_to_db(ftp_conn_id, postgres_conn_id, batch_size, **kwargs):
     ftp_hook = FTPHook(ftp_conn_id)
     pg_hook = PostgresHook(postgres_conn_id)
     filename = kwargs['ti'].xcom_pull(key='employee_filename')
+    request_id = kwargs['ti'].xcom_pull(key='request_id')
 
-    with io.BytesIO() as file_buffer:
-        ftp_hook.retrieve_file(f'for_chtd/test_kxd_glavnivc/' + filename, file_buffer)
-        file_buffer.seek(0)
+    with BytesIO() as xml_buffer:
+        ftp_hook.retrieve_file(f'for_chtd/test_kxd_glavnivc/{filename}', xml_buffer)
+        xml_buffer.seek(0)
 
-        context = etree.iterparse(file_buffer, events=('end',), tag='record')
+        context = etree.iterparse(xml_buffer, events=('end',), tag='record')
 
         records = []
-        request_id = kwargs['ti'].xcom_pull(key='request_id')
 
         try:
             for event, element in context:
@@ -150,20 +158,27 @@ def process_record(record_element, request_id):
 
 
 def insert_records_to_db(records, pg_hook, batch_size):
-    data_to_insert = [(record['request_id'], record['id_employee'], record['fio'], record['id_region'],
-                       record['id_company'], record['l_faktor'], record['j_faktor'], record['x_faktor'],
-                       record['birth_date'], record['date_devations'], record['uik'], record['uik_num']
-                       ) for record in records]
+    data_to_insert = [(
+        record['request_id'], record['id_employee'], record['fio'], record['id_region'],
+        record['id_company'], record['l_faktor'], record['j_faktor'], record['x_faktor'],
+        record['birth_date'], record['date_devations'], record['uik'], record['uik_num']
+    ) for record in records]
 
-    pg_hook.insert_rows(table='stg."DWH_DSO_1STGemployees"',
-                        rows=data_to_insert,
-                        commit_every=batch_size,
-                        target_fields=['request_id', 'id_employee', 'fio', 'id_region', 'id_company', 'l_faktor',
-                                       'j_faktor', 'x_faktor', 'birth_date', 'date_devations', 'uik', 'uik_num'])
+    pg_hook.insert_rows(
+        table='stg."DWH_DSO_1STGemployees"',
+        rows=data_to_insert,
+        commit_every=batch_size,
+        target_fields=['request_id', 'id_employee', 'fio', 'id_region', 'id_company', 'l_faktor',
+                       'j_faktor', 'x_faktor', 'birth_date', 'date_devations', 'uik', 'uik_num']
+    )
 
+
+profiler.disable()
+profiler.print_stats(sort='cumulative')
 
 with DAG('load_employees_from_xml_to_stg_stream', default_args=default_args,
          schedule_interval='@once', catchup=False, tags=['test_db']) as dag:
+
     get_filename_list_task = PythonOperator(
         task_id='get_filename_list',
         python_callable=get_filename_list
@@ -185,7 +200,7 @@ with DAG('load_employees_from_xml_to_stg_stream', default_args=default_args,
         op_kwargs={
             'ftp_conn_id': 'ftp_chtd',
             'postgres_conn_id': 'test_db',
-            'batch_size': 100000
+            'batch_size': 16000
         },
     )
 

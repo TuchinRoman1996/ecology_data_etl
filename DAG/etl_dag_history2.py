@@ -1,5 +1,8 @@
 import sys
 from os.path import abspath, dirname
+import uuid
+
+from airflow.providers.postgres.hooks.postgres import PostgresHook
 
 sys.path.append(dirname(dirname(abspath(__file__))))
 
@@ -41,12 +44,32 @@ default_args = {
     'catchup': 'false'
 }
 
+
+def load_metadata_to_staging(**kwargs):
+    request_id = str(uuid.uuid4())
+    table_name = 'DWH_DSO_2STGmetadata'
+    filename = kwargs['ti'].xcom_pull(key='employee_filename')
+    pg_hook = PostgresHook(postgres_conn_id='test_db')
+
+    sql = f"""
+        INSERT INTO stg."DWH_DSO_2STGmetadata"(request_id, table_name, filename)
+        VALUES('{request_id}', '{table_name}', '{filename}');
+    """
+    kwargs['ti'].xcom_push(key='request_id', value=request_id)
+    pg_hook.run(sql)
+
+
 with DAG('History_2', default_args=default_args, schedule_interval='@once', schedule=None, concurrency=16) as dag:
     extract_from_postgres_ps2 = PythonOperator(
         task_id='extract_from_postgres_ps2',
         python_callable=extract_from_postgresql_club_ru,
         provide_context=True,
         op_args=[source_db_params]
+    )
+
+    load_metadata_to_staging_task = PythonOperator(
+        task_id='load_metadata_to_staging',
+        python_callable=load_metadata_to_staging,
     )
 
     load_to_stg_age_group = PythonOperator(
