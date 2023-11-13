@@ -1,6 +1,7 @@
 from airflow import DAG
 from airflow.exceptions import AirflowException
 from airflow.operators.python import PythonOperator
+from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.providers.ftp.hooks.ftp import FTPHook
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from airflow.utils.dates import days_ago
@@ -137,4 +138,9 @@ with DAG('load_set_companies_from_xml_to_stg', default_args=default_args, schedu
         op_args=['SUCCESS', '{{ ti.xcom_pull(key="request_id") }}', PostgresHook('test_db')]
     )
 
-    get_metadata_task >> load_companies_to_stg >> update_metadata_status_success_task
+    trigger_ftp_monitoring_dag_task = TriggerDagRunOperator(
+        task_id='trigger_ftp_monitoring_dag',
+        trigger_dag_id='ftp_monitoring_dag',
+    )
+
+    get_metadata_task >> load_companies_to_stg >> update_metadata_status_success_task >> trigger_ftp_monitoring_dag_task

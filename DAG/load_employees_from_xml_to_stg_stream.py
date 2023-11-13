@@ -8,6 +8,7 @@ from airflow.exceptions import AirflowException
 from lxml import etree
 from io import BytesIO
 
+table = 'DWH_DSO_1STGemployees'
 
 default_args = {
     'owner': 'RTuchin',
@@ -43,15 +44,17 @@ def update_metadata_status(status, request_id, pg_hook):
 
 
 def process_large_xml_and_insert_to_db(ftp_conn_id, postgres_conn_id, batch_size, **kwargs):
-    ftp_hook = FTPHook(ftp_conn_id)
-    pg_hook = PostgresHook(postgres_conn_id)
-    filename = kwargs['ti'].xcom_pull(key='filename')
     request_id = kwargs['ti'].xcom_pull(key='request_id')
-    print(f'Имя файла: {filename}')
-    print(f'Идентификатор запроса: {request_id}')
+    filename = kwargs['ti'].xcom_pull(key='filename')
+
+    pg_hook = PostgresHook(postgres_conn_id)
+    ftp_hook = FTPHook(ftp_conn_id)
+
+    def block_info():
+        print('Блок получен')
 
     with BytesIO() as xml_buffer:
-        ftp_hook.retrieve_file(f'for_chtd/test_kxd_glavnivc/{filename}', xml_buffer)
+        ftp_hook.retrieve_file(f'for_chtd/test_kxd_glavnivc/{filename}', xml_buffer, callback=block_info(), block_size=batch_size*470)
         xml_buffer.seek(0)
 
         context = etree.iterparse(xml_buffer, events=('end',), tag='record')
@@ -60,55 +63,69 @@ def process_large_xml_and_insert_to_db(ftp_conn_id, postgres_conn_id, batch_size
 
         try:
             for event, element in context:
-                record_data = process_record(element, request_id)
-                records.append(record_data)
+                record = (
+                        request_id,
+                        element.findtext('IDсотрудника'),
+                        element.findtext('ФИО'),
+                        element.findtext('IDРегиона'),
+                        element.findtext('IDКомпании'),
+                        element.findtext('Лфактор'),
+                        element.findtext('Жфактор'),
+                        element.findtext('Хфактор'),
+                        element.findtext('Датарождения'),
+                        element.findtext('Датаотклонения'),
+                        element.findtext('УИК'),
+                        element.findtext('УИКЧисло'),
+                    )
+                records.append(record)
 
                 if len(records) >= batch_size:
-                    insert_records_to_db(records, pg_hook, batch_size)
+                    print('Данные для вставки готовы')
+                    insert_records_to_db(records, postgres_conn_id, table)
                     records = []
 
                 element.clear()
 
             if records:
-                insert_records_to_db(records, pg_hook, batch_size)
+                insert_records_to_db(records, postgres_conn_id, table)
+
+            update_metadata_status("SUCCESS", request_id, pg_hook)
 
         except Exception as e:
             update_metadata_status('FAILED', request_id, pg_hook)
             raise AirflowException(f"Ошибка загрузки Данных в таблицу: {str(e)}")
 
 
-def process_record(record_element, request_id):
-    record_data = {
-        'request_id': f'{request_id}',
-        'id_employee': record_element.findtext('IDсотрудника'),
-        'fio': record_element.findtext('ФИО'),
-        'id_region': record_element.findtext('IDРегиона'),
-        'id_company': record_element.findtext('IDКомпании'),
-        'l_faktor': record_element.findtext('Лфактор'),
-        'j_faktor': record_element.findtext('Жфактор'),
-        'x_faktor': record_element.findtext('Хфактор'),
-        'birth_date': record_element.findtext('Датарождения'),
-        'date_devations': record_element.findtext('Датаотклонения'),
-        'uik': record_element.findtext('УИК'),
-        'uik_num': record_element.findtext('УИКЧисло')
-    }
-    return record_data
+def insert_records_to_db(records, postgres_conn_id, table_name):
+    pg_hook = PostgresHook(postgres_conn_id)
 
+    # Получаем соединение
+    conn = pg_hook.get_conn()
 
-def insert_records_to_db(records, pg_hook, batch_size):
-    data_to_insert = [(
-        record['request_id'], record['id_employee'], record['fio'], record['id_region'],
-        record['id_company'], record['l_faktor'], record['j_faktor'], record['x_faktor'],
-        record['birth_date'], record['date_devations'], record['uik'], record['uik_num']
-    ) for record in records]
+    # Создаем курсор
+    cursor = conn.cursor()
 
-    pg_hook.insert_rows(
-        table='stg."DWH_DSO_1STGemployees"',
-        rows=data_to_insert,
-        commit_every=batch_size,
-        target_fields=['request_id', 'id_employee', 'fio', 'id_region', 'id_company', 'l_faktor',
-                       'j_faktor', 'x_faktor', 'birth_date', 'date_devations', 'uik', 'uik_num']
-    )
+    try:
+
+        values = ', '.join(cursor.mogrify("(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", record).decode('utf-8') for record in records)
+
+        sql_query = f"""
+            INSERT INTO stg."{table_name}"(request_id, id_employee, fio, id_region, id_company, l_faktor, j_faktor, x_faktor, birth_date, date_devations, uik, uik_num)
+            VALUES {values};
+        """
+        cursor.execute(sql_query)
+
+        conn.commit()
+        print('Произошла вставка пакета')
+
+    except Exception as e:
+        update_metadata_status('FAILED', records[0][0], pg_hook)
+        raise AirflowException(f"Ошибка загрузки данных в таблицу: {str(e)}")
+
+    finally:
+        if conn:
+            cursor.close()
+            conn.close()
 
 
 with DAG('load_employees_from_xml_to_stg_stream', default_args=default_args,
@@ -125,13 +142,13 @@ with DAG('load_employees_from_xml_to_stg_stream', default_args=default_args,
         op_kwargs={
             'ftp_conn_id': 'ftp_chtd',
             'postgres_conn_id': 'test_db',
-            'batch_size': 16000
+            'batch_size': 100000
         },
     )
 
-    trigger_dag_operator_task = TriggerDagRunOperator(
-        task_id='trigger_stream_dag',
-        trigger_dag_id='ftp_monitoring_dag'
+    trigger_ftp_monitoring_dag_task = TriggerDagRunOperator(
+        task_id='trigger_ftp_monitoring_dag',
+        trigger_dag_id='ftp_monitoring_dag',
     )
 
-    get_metadata_task >> process_large_xml_task >> trigger_dag_operator_task
+    get_metadata_task >> process_large_xml_task >> trigger_ftp_monitoring_dag_task
