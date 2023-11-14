@@ -151,7 +151,8 @@ def load_to_stg_customer(db_params, **kwargs):
     print(data_for_customer[0])
 
     execute_values(cursor, f"""
-    INSERT INTO stg."/DWH/AO/0customer" (request_id, cust_id, first_name, last_name, age, phone_number, address, city_id, sales_id, sponsor_id)
+    INSERT INTO stg."/DWH/AO/0customer" (request_id, cust_id, first_name, last_name, age, phone_number, address, city_id, 
+    sales_id, sponsor_id)
     VALUES %s
     """, data_for_customer, page_size=10000)
 
@@ -339,20 +340,3 @@ def load_to_stg_sales_service_line(db_params, **kwargs):
 
     cursor.close()
     conn.close()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

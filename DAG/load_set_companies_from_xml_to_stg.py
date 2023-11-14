@@ -45,7 +45,7 @@ def load_set_companies_to_stg(ftp_conn_id, postgres_conn_id, batch_size, **kwarg
     ftp_hook = FTPHook(ftp_conn_id)
 
     with BytesIO() as xml_buffer:
-        ftp_hook.retrieve_file(f'for_chtd/test_kxd_glavnivc/{filename}', xml_buffer)
+        ftp_hook.retrieve_file(f'В_очереди/for_chtd/test_kxd_glavnivc/{filename}', xml_buffer)
         xml_buffer.seek(0)
 
         context = etree.iterparse(xml_buffer, events=('end',), tag='record')

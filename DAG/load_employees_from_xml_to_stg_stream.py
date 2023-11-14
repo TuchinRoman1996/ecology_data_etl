@@ -54,7 +54,8 @@ def process_large_xml_and_insert_to_db(ftp_conn_id, postgres_conn_id, batch_size
         print('Блок получен')
 
     with BytesIO() as xml_buffer:
-        ftp_hook.retrieve_file(f'for_chtd/test_kxd_glavnivc/{filename}', xml_buffer, callback=block_info(), block_size=batch_size*470)
+        ftp_hook.retrieve_file(f'В_очереди/for_chtd/test_kxd_glavnivc/{filename}', xml_buffer, callback=block_info(),
+                               block_size=batch_size*470)
         xml_buffer.seek(0)
 
         context = etree.iterparse(xml_buffer, events=('end',), tag='record')
@@ -107,10 +108,12 @@ def insert_records_to_db(records, postgres_conn_id, table_name):
 
     try:
 
-        values = ', '.join(cursor.mogrify("(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", record).decode('utf-8') for record in records)
+        values = ', '.join(cursor.mogrify("(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", record).decode('utf-8')
+                           for record in records)
 
         sql_query = f"""
-            INSERT INTO stg."{table_name}"(request_id, id_employee, fio, id_region, id_company, l_faktor, j_faktor, x_faktor, birth_date, date_devations, uik, uik_num)
+            INSERT INTO stg."{table_name}"(request_id, id_employee, fio, id_region, id_company, l_faktor, j_faktor, 
+            x_faktor, birth_date, date_devations, uik, uik_num)
             VALUES {values};
         """
         cursor.execute(sql_query)
@@ -129,6 +132,7 @@ def insert_records_to_db(records, postgres_conn_id, table_name):
 
 
 with DAG('load_employees_from_xml_to_stg_stream', default_args=default_args,
+         access_control={'test_user': {'can_dag_read', 'can_dag_edit'}},
          schedule_interval='@once', catchup=False, tags=['test_db']) as dag:
     get_metadata_task = PythonOperator(
         task_id='get_metadata',
