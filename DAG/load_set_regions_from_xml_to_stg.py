@@ -48,7 +48,9 @@ def load_set_regions_to_stg(ftp_conn_id, postgres_conn_id, batch_size, **kwargs)
     ftp_hook = FTPHook(ftp_conn_id)
 
     with BytesIO() as xml_buffer:
-        ftp_hook.retrieve_file(f'for_chtd/test_kxd_glavnivc/В_очереди/{filename}', xml_buffer)
+        ftp_path = "for_chtd/test_kxd_glavnivc/В_очереди/"
+        ftp_path_encoded = ftp_path.encode('utf-8').decode('latin-1')
+        ftp_hook.retrieve_file(f'{ftp_path_encoded}{filename}', xml_buffer)
         xml_buffer.seek(0)
 
         context = etree.iterparse(xml_buffer, events=('end',), tag='record')
@@ -110,8 +112,8 @@ class FTPMoveFileOperator(BaseOperator):
     @apply_defaults
     def __init__(self, source_path, destination_path, ftp_conn_id, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.source_path = source_path
-        self.destination_path = destination_path
+        self.source_path = source_path.encode('utf-8').decode('latin-1')
+        self.destination_path = destination_path.encode('utf-8').decode('latin-1')
         self.ftp_conn_id = ftp_conn_id
 
     def execute(self, context):
