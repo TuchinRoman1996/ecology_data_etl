@@ -54,7 +54,7 @@ def process_large_xml_and_insert_to_db(ftp_conn_id, postgres_conn_id, batch_size
         print('Блок получен')
 
     with BytesIO() as xml_buffer:
-        ftp_hook.retrieve_file(f'В_очереди/for_chtd/test_kxd_glavnivc/{filename}', xml_buffer, callback=block_info(),
+        ftp_hook.retrieve_file(f'for_chtd/test_kxd_glavnivc/В_очереди/{filename}', xml_buffer, callback=block_info(),
                                block_size=batch_size*470)
         xml_buffer.seek(0)
 

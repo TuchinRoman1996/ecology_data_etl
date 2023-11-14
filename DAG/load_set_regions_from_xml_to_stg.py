@@ -1,10 +1,13 @@
 from airflow import DAG
 from airflow.exceptions import AirflowException
+from airflow.models import BaseOperator
 from airflow.operators.python import PythonOperator
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.providers.ftp.hooks.ftp import FTPHook
 from airflow.providers.postgres.hooks.postgres import PostgresHook
+from airflow.providers.postgres.operators.postgres import PostgresOperator
 from airflow.utils.dates import days_ago
+from airflow.utils.decorators import apply_defaults
 from lxml import etree
 from io import BytesIO
 
@@ -45,7 +48,7 @@ def load_set_regions_to_stg(ftp_conn_id, postgres_conn_id, batch_size, **kwargs)
     ftp_hook = FTPHook(ftp_conn_id)
 
     with BytesIO() as xml_buffer:
-        ftp_hook.retrieve_file(f'В_очереди/for_chtd/test_kxd_glavnivc/{filename}', xml_buffer)
+        ftp_hook.retrieve_file(f'for_chtd/test_kxd_glavnivc/В_очереди/{filename}', xml_buffer)
         xml_buffer.seek(0)
 
         context = etree.iterparse(xml_buffer, events=('end',), tag='record')
@@ -103,6 +106,23 @@ def insert_records_to_db(records, pg_hook, batch_size, table):
     )
 
 
+class FTPMoveFileOperator(BaseOperator):
+    @apply_defaults
+    def __init__(self, source_path, destination_path, ftp_conn_id, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.source_path = source_path
+        self.destination_path = destination_path
+        self.ftp_conn_id = ftp_conn_id
+
+    def execute(self, context):
+        ftp_hook = FTPHook(ftp_conn_id=self.ftp_conn_id)
+        filename = context['ti'].xcom_pull(key='filename')
+
+        with ftp_hook.get_conn() as ftp:
+            ftp.rename(self.source_path + filename, self.destination_path + filename)
+            self.log.info(f"Файл {self.source_path} перемещен в {self.destination_path}")
+
+
 default_args = {
     'owner': 'RTuchin',
     'depends_on_past': False,
@@ -112,7 +132,6 @@ default_args = {
 
 with DAG('load_set_regions_from_xml_to_stg', default_args=default_args, schedule_interval='@once',
          catchup=False, tags=['test_db']) as dag:
-
     get_metadata_task = PythonOperator(
         task_id='get_metadata',
         provide_context=True,
@@ -138,9 +157,57 @@ with DAG('load_set_regions_from_xml_to_stg', default_args=default_args, schedule
         op_args=['SUCCESS', '{{ ti.xcom_pull(key="request_id") }}', PostgresHook('test_db')]
     )
 
+    ftp_moved_file_task = FTPMoveFileOperator(
+        task_id='ftp_moved_file',
+        source_path='for_chtd/test_kxd_glavnivc/В_очереди/',
+        destination_path='for_chtd/test_kxd_glavnivc/Архив/',
+        ftp_conn_id='ftp_chtd'
+    )
+
+    load_set_regions_from_stg_to_nds_task = PostgresOperator(
+        task_id='load_set_regions_from_stg_to_nds',
+        postgres_conn_id='test_db',
+        sql="""
+            INSERT INTO nds."DWH_AO_HNDSregions"
+            (id_region, region_name, region_parent, population, name_eng, code, region_oktmo, region_okato, f_value)
+            with last_record as (
+                select request_id 
+                from stg."DWH_DSO_2STGmetadata" dds 
+                where table_name = 'DWH_AO_0regions'
+                order by load_date desc 
+                limit 1
+            )
+            select 
+                id_region::bigint
+                ,region_name::text 
+                ,region_parent::text
+                ,population::numeric(14)
+                ,name_eng::text
+                ,code::int8
+                ,region_oktmo::int8
+                ,region_okato ::int8
+                ,case when f_value ='' then null
+                else f_value::numeric(13)
+                end
+            from stg."DWH_AO_0regions" r
+            join last_record lr on r.request_id = lr.request_id
+            on conflict (id_region) do update SET
+              region_name = EXCLUDED.region_name,
+              region_parent = EXCLUDED.region_parent,
+              population = EXCLUDED.population,
+              name_eng = EXCLUDED.name_eng,
+              code = EXCLUDED.code,
+              region_oktmo = EXCLUDED.region_oktmo,
+              region_okato = EXCLUDED.region_okato,
+              f_value = EXCLUDED.f_value;
+        """
+    )
+
     trigger_ftp_monitoring_dag_task = TriggerDagRunOperator(
         task_id='trigger_ftp_monitoring_dag',
         trigger_dag_id='ftp_monitoring_dag',
     )
 
     get_metadata_task >> load_regions_to_stg >> update_metadata_status_success_task >> trigger_ftp_monitoring_dag_task
+    load_regions_to_stg >> load_set_regions_from_stg_to_nds_task >> trigger_ftp_monitoring_dag_task
+    load_regions_to_stg >> ftp_moved_file_task >> trigger_ftp_monitoring_dag_task
