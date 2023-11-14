@@ -46,7 +46,9 @@ class CustomFTPSensor(BaseSensorOperator):
         self.uploaded_files = context['ti'].xcom_pull(key='filename_list')
 
         try:
-            ftp_files = set(self.ftp_hook.list_directory("for_chtd/test_kxd_glavnivc/В_очереди"))
+            ftp_path = "for_chtd/test_kxd_glavnivc/В_очереди"
+            ftp_path_encoded = ftp_path.encode('utf-8')
+            ftp_files = set(self.ftp_hook.list_directory(ftp_path_encoded.decode('latin-1')))
             print(f'Список файлов в FTP:\n{ftp_files}')
             new_files = ftp_files - self.uploaded_files
             print(f'Новые файлы:{new_files}')
