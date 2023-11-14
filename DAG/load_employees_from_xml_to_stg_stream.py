@@ -137,8 +137,8 @@ class FTPMoveFileOperator(BaseOperator):
     @apply_defaults
     def __init__(self, source_path, destination_path, ftp_conn_id, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.source_path = source_path.encode('utf-8').decode('latin-1')
-        self.destination_path = destination_path.encode('utf-8').decode('latin-1')
+        self.source_path = source_path
+        self.destination_path = destination_path
         self.ftp_conn_id = ftp_conn_id
 
     def execute(self, context):

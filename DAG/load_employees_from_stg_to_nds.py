@@ -159,27 +159,24 @@ with DAG('load_employees_from_stg_to_nds', default_args=default_args, schedule_i
                 SELECT 
                     id_employee::int8,
                     fio::text,
-                    birth_date::timestamp
-                    ,ROW_NUMBER() OVER (PARTITION BY id_employee ORDER BY record_id DESC) AS rn
+                    birth_date::timestamp,
+                    ROW_NUMBER() OVER (PARTITION BY id_employee ORDER BY record_id DESC) AS rn
                 FROM nds."DWH_DSO_3NDSemployees"
             )
             SELECT 
-                id_employee
-                ,CASE
-                      WHEN fio is not null THEN split_part(fio, ' ', 1)
-                      ELSE NULL
-                 END AS first_name,
-                 CASE
-                      WHEN fio is not null THEN split_part(fio, ' ', 2)
-                      ELSE NULL
-                  END AS last_name,
-                  CASE
-                      WHEN fio is not null then split_part(fio, ' ', 3)
-                      ELSE NULL
-                END AS sur_name
-                ,birth_date
+                id_employee,
+                CASE WHEN fio IS NOT NULL THEN split_part(fio, ' ', 1) ELSE NULL END AS first_name,
+                CASE WHEN fio IS NOT NULL THEN split_part(fio, ' ', 2) ELSE NULL END AS last_name,
+                CASE WHEN fio IS NOT NULL THEN split_part(fio, ' ', 3) ELSE NULL END AS sur_name,
+                birth_date
             FROM RankedRecords
-            WHERE rn = 1;
+            WHERE rn = 1
+        ON CONFLICT (id_employee) DO UPDATE
+            SET 
+                first_name = EXCLUDED.first_name,
+                last_name = EXCLUDED.last_name,
+                sur_name = EXCLUDED.sur_name,
+                birth_date = EXCLUDED.birth_date;
         """
     )
 
@@ -187,7 +184,7 @@ with DAG('load_employees_from_stg_to_nds', default_args=default_args, schedule_i
         task_id='insert_into_2NDSemployees',
         postgres_conn_id='test_db',
         sql="""
-            INSERT INTO nds."DWH_DSO_2NDSemployees"
+           INSERT INTO nds."DWH_DSO_2NDSemployees"
             (id_employee, id_region, id_company, l_faktor, j_faktor, x_faktor, date_devations, uik, uik_num)
             WITH RankedRecords AS (
                 SELECT 
@@ -214,7 +211,17 @@ with DAG('load_employees_from_stg_to_nds', default_args=default_args, schedule_i
                 uik,
                 uik_num
             FROM RankedRecords
-            WHERE rn = 1;
+            WHERE rn = 1
+            ON CONFLICT (id_employee) DO UPDATE
+            SET 
+                id_region = EXCLUDED.id_region,
+                id_company = EXCLUDED.id_company,
+                l_faktor = EXCLUDED.l_faktor,
+                j_faktor = EXCLUDED.j_faktor,
+                x_faktor = EXCLUDED.x_faktor,
+                date_devations = EXCLUDED.date_devations,
+                uik = EXCLUDED.uik,
+                uik_num = EXCLUDED.uik_num;
         """
     )
 
