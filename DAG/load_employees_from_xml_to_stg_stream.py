@@ -1,10 +1,12 @@
 from airflow import DAG
+from airflow.models import BaseOperator
 from airflow.operators.python import PythonOperator
 from airflow.providers.ftp.hooks.ftp import FTPHook
 from airflow.utils.dates import days_ago
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from airflow.exceptions import AirflowException
+from airflow.utils.decorators import apply_defaults
 from lxml import etree
 from io import BytesIO
 
@@ -55,7 +57,7 @@ def process_large_xml_and_insert_to_db(ftp_conn_id, postgres_conn_id, batch_size
 
     with BytesIO() as xml_buffer:
         ftp_hook.retrieve_file(f'for_chtd/test_kxd_glavnivc/В_очереди/{filename}', xml_buffer, callback=block_info(),
-                               block_size=batch_size*470)
+                               block_size=batch_size * 470)
         xml_buffer.seek(0)
 
         context = etree.iterparse(xml_buffer, events=('end',), tag='record')
@@ -65,19 +67,19 @@ def process_large_xml_and_insert_to_db(ftp_conn_id, postgres_conn_id, batch_size
         try:
             for event, element in context:
                 record = (
-                        request_id,
-                        element.findtext('IDсотрудника'),
-                        element.findtext('ФИО'),
-                        element.findtext('IDРегиона'),
-                        element.findtext('IDКомпании'),
-                        element.findtext('Лфактор'),
-                        element.findtext('Жфактор'),
-                        element.findtext('Хфактор'),
-                        element.findtext('Датарождения'),
-                        element.findtext('Датаотклонения'),
-                        element.findtext('УИК'),
-                        element.findtext('УИКЧисло'),
-                    )
+                    request_id,
+                    element.findtext('IDсотрудника'),
+                    element.findtext('ФИО'),
+                    element.findtext('IDРегиона'),
+                    element.findtext('IDКомпании'),
+                    element.findtext('Лфактор'),
+                    element.findtext('Жфактор'),
+                    element.findtext('Хфактор'),
+                    element.findtext('Датарождения'),
+                    element.findtext('Датаотклонения'),
+                    element.findtext('УИК'),
+                    element.findtext('УИКЧисло'),
+                )
                 records.append(record)
 
                 if len(records) >= batch_size:
@@ -131,8 +133,25 @@ def insert_records_to_db(records, postgres_conn_id, table_name):
             conn.close()
 
 
+class FTPMoveFileOperator(BaseOperator):
+    @apply_defaults
+    def __init__(self, source_path, destination_path, ftp_conn_id, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.source_path = source_path
+        self.destination_path = destination_path
+        self.ftp_conn_id = ftp_conn_id
+
+    def execute(self, context):
+        ftp_hook = FTPHook(ftp_conn_id=self.ftp_conn_id)
+        filename = context['ti'].xcom_pull(key='filename')
+
+        with ftp_hook.get_conn() as ftp:
+            ftp.rename(self.source_path + filename, self.destination_path + filename)
+            self.log.info(f"Файл {self.source_path} перемещен в {self.destination_path}")
+
+
 with DAG('load_employees_from_xml_to_stg_stream', default_args=default_args,
-         access_control={'test_user': {'can_dag_read', 'can_dag_edit'}},
+         # access_control={'test_user': {'can_dag_read', 'can_dag_edit'}},
          schedule_interval='@once', catchup=False, tags=['test_db']) as dag:
     get_metadata_task = PythonOperator(
         task_id='get_metadata',
@@ -146,8 +165,15 @@ with DAG('load_employees_from_xml_to_stg_stream', default_args=default_args,
         op_kwargs={
             'ftp_conn_id': 'ftp_chtd',
             'postgres_conn_id': 'test_db',
-            'batch_size': 100000
+            'batch_size': 200000
         },
+    )
+
+    ftp_moved_file_task = FTPMoveFileOperator(
+        task_id='ftp_moved_file',
+        source_path='for_chtd/test_kxd_glavnivc/В_очереди/',
+        destination_path='for_chtd/test_kxd_glavnivc/Архив/',
+        ftp_conn_id='ftp_chtd'
     )
 
     trigger_ftp_monitoring_dag_task = TriggerDagRunOperator(
@@ -155,4 +181,11 @@ with DAG('load_employees_from_xml_to_stg_stream', default_args=default_args,
         trigger_dag_id='ftp_monitoring_dag',
     )
 
-    get_metadata_task >> process_large_xml_task >> trigger_ftp_monitoring_dag_task
+    trigger_load_employees_from_stg_to_nds = TriggerDagRunOperator(
+        task_id='trigger_load_employees_from_stg_to_nds',
+        trigger_dag_id='load_employees_from_stg_to_nds',
+    )
+
+    get_metadata_task >> process_large_xml_task >> ftp_moved_file_task
+    process_large_xml_task >> trigger_ftp_monitoring_dag_task
+    process_large_xml_task >> trigger_load_employees_from_stg_to_nds
