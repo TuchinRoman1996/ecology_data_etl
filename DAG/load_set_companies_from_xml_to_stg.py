@@ -131,7 +131,7 @@ default_args = {
     'catchup': 'false'
 }
 
-with DAG('load_set_companies_from_xml_to_stg', default_args=default_args, schedule_interval='@once',
+with DAG('load_set_companies_from_xml_to_stg', default_args=default_args, schedule_interval=None,
          catchup=False, tags=['test_db']) as dag:
 
     get_metadata_task = PythonOperator(

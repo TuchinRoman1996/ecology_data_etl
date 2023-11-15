@@ -74,8 +74,8 @@ def load_metadata_to_staging(**kwargs):
         """)
 
 
-with DAG('History_2', default_args=default_args, schedule_interval='@once', schedule=None, concurrency=16,
-         tags=['club_ru']) as dag:
+with DAG('Initial_boot', default_args=default_args, schedule_interval=None, schedule=None, concurrency=16,
+         tags=['target_db']) as dag:
     extract_from_postgres_ps2 = PythonOperator(
         task_id='extract_from_postgres_ps2',
         python_callable=extract_from_postgresql_club_ru,

@@ -152,7 +152,7 @@ class FTPMoveFileOperator(BaseOperator):
 
 with DAG('load_employees_from_xml_to_stg_stream', default_args=default_args,
          # access_control={'test_user': {'can_dag_read', 'can_dag_edit'}},
-         schedule_interval='@once', catchup=False, tags=['test_db']) as dag:
+         schedule_interval=None, catchup=False, tags=['test_db']) as dag:
     get_metadata_task = PythonOperator(
         task_id='get_metadata',
         python_callable=get_metadata,

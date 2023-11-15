@@ -98,7 +98,7 @@ def load_metadata_to_staging(filename, table_name):
     pg_hook.run(sql)
 
 
-with DAG('ftp_monitoring_dag', default_args=default_args, schedule_interval='@once', catchup=False,
+with DAG('ftp_monitoring_dag', default_args=default_args, schedule_interval=None, catchup=False,
          tags=['test_db']) as dag:
     get_filename_list_task = PythonOperator(
         task_id='get_filename_list',

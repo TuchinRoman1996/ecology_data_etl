@@ -9,7 +9,7 @@ default_args = {
     'catchup': 'false'
 }
 
-with DAG('load_employees_from_stg_to_nds', default_args=default_args, schedule_interval='@once', catchup=False,
+with DAG('load_employees_from_stg_to_nds', default_args=default_args, schedule_interval=None, catchup=False,
          tags=['test_db']) as dag:
 
     insert_new_data_task = PostgresOperator(
