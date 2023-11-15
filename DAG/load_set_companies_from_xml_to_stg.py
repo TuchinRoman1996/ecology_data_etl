@@ -78,6 +78,7 @@ def process_record(record_element, request_id):
     record_data = {
         'request_id': f'{request_id}',
         'id_company': record_element.findtext('IDКомпании'),
+        'company_name': record_element.findtext('Название'),
         'company_parent': record_element.findtext('ГоловнаяОрганизация'),
         'id_region': record_element.findtext('idРегиона'),
         'type_company': record_element.findtext('ТипКомпании'),
@@ -92,7 +93,7 @@ def process_record(record_element, request_id):
 
 def insert_records_to_db(records, pg_hook, batch_size, table):
     data_to_insert = [(
-        record['request_id'], record['id_company'], record['company_parent'], record['id_region'],
+        record['request_id'], record['id_company'], record['company_name'], record['company_parent'], record['id_region'],
         record['type_company'], record['type_industry'], record['rosstat'], record['create_date'],
         record['date2'], record['inn']
     ) for record in records]
@@ -101,8 +102,8 @@ def insert_records_to_db(records, pg_hook, batch_size, table):
         table=f'stg."{table}"',
         rows=data_to_insert,
         commit_every=batch_size,
-        target_fields=['request_id', 'id_company', 'company_parent', 'id_region', 'type_company', 'type_industry',
-                       'rosstat', 'create_date', 'date2', 'inn']
+        target_fields=['request_id', 'id_company', 'company_name', 'company_parent', 'id_region', 'type_company',
+                       'type_industry', 'rosstat', 'create_date', 'date2', 'inn']
     )
 
 
@@ -164,7 +165,7 @@ with DAG('load_set_companies_from_xml_to_stg', default_args=default_args, schedu
         postgres_conn_id='test_db',
         sql="""
                 INSERT INTO nds."DWH_AO_NDStype_company"
-                (tyoe_company_name)
+                (type_company_name)
                 with last_request_id as (
                     select request_id 
                     from stg."DWH_DSO_2STGmetadata" dds 
@@ -182,7 +183,7 @@ with DAG('load_set_companies_from_xml_to_stg', default_args=default_args, schedu
         postgres_conn_id='test_db',
         sql="""
             INSERT INTO nds."DWH_AO_NDStype_industry"
-            (tyoe_undystry_name)
+            (type_indystry_name)
             with last_request_id as (
                 select request_id 
                 from stg."DWH_DSO_2STGmetadata" dds 
@@ -200,7 +201,7 @@ with DAG('load_set_companies_from_xml_to_stg', default_args=default_args, schedu
         postgres_conn_id='test_db',
         sql="""
             INSERT INTO nds."DWH_AO_HNDScompanies"
-            (id_company, company_parent, id_region, type_company_cd, type_industry_cd, rosstat, create_date, date2, inn)
+            (id_company, company_name, company_parent, id_region, type_company_cd, type_industry_cd, rosstat, create_date, date2, inn)
             with last_request_id as (
                 select request_id 
                 from stg."DWH_DSO_2STGmetadata" dds 
@@ -210,6 +211,7 @@ with DAG('load_set_companies_from_xml_to_stg', default_args=default_args, schedu
                 )
             select
                 id_company::int8
+                ,company_name::text
                 ,company_parent::text
                 ,id_region::int8
                 ,danc.type_company_cd::int8
@@ -220,8 +222,8 @@ with DAG('load_set_companies_from_xml_to_stg', default_args=default_args, schedu
                 ,inn::text
             from stg."DWH_AO_0companies" dac 
             join last_request_id lr on dac.request_id = lr.request_id
-            join nds."DWH_AO_NDStype_company" danc on dac.type_company = danc.tyoe_company_name 
-            join nds."DWH_AO_NDStype_industry" dani on dac.type_industry = dani.tyoe_undystry_name;
+            join nds."DWH_AO_NDStype_company" danc on dac.type_company = danc.type_company_name 
+            join nds."DWH_AO_NDStype_industry" dani on dac.type_industry = dani.type_indystry_name;
             """
     )
 

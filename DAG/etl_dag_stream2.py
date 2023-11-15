@@ -107,7 +107,8 @@ default_args = {
     'catchup': 'false'
 }
 
-with DAG('Stream_2', default_args=default_args, schedule_interval='@once', schedule=None, concurrency=16) as dag:
+with DAG('Stream_2', default_args=default_args, schedule_interval='@once', schedule=None, concurrency=16,
+         tags=['club_ru']) as dag:
     listen_source_db = PostgresNotificationSensor(
         task_id='listen_source_db'
     )

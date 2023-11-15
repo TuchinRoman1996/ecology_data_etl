@@ -1,4 +1,5 @@
 import psycopg2
+import uuid
 
 
 def extract_from_postgres_hist(db_params, **kwargs):
@@ -49,114 +50,112 @@ def extract_from_postgresql_club_ru(db_params, **kwargs):
     cursor = conn.cursor()
 
     cursor.execute("""
-      SELECT %s as run_id, age_group_id, age_min, age_max, age_range
+      SELECT age_group_id, age_min, age_max, age_range
       FROM public.age_group;
-    """, (kwargs['run_id'],))
+    """)
 
     data_for_age_group = cursor.fetchall()
     kwargs['ti'].xcom_push(key='data_for_age_group', value=data_for_age_group)
 
     cursor.execute("""
-        SELECT %s as run_id, city_id, city, region_id
+        SELECT city_id, city, region_id
         FROM public.city;
-    """, (kwargs['run_id'],))
+    """)
 
     data_for_city = cursor.fetchall()
     kwargs['ti'].xcom_push(key='data_for_city', value=data_for_city)
 
     cursor.execute("""
-        SELECT %s as run_id, country_id, country
+        SELECT country_id, country
         FROM public.country;
-    """, (kwargs['run_id'],))
+    """)
 
     data_for_country = cursor.fetchall()
     kwargs['ti'].xcom_push(key='data_for_country', value=data_for_country)
 
     cursor.execute("""
-        SELECT %s as run_id, cust_id, first_name, last_name, age, phone_number, address, city_id, sales_id, sponsor_id
+        SELECT cust_id, first_name, last_name, age, phone_number, address, city_id, sales_id, sponsor_id
         FROM public.customer;
-    """, (kwargs['run_id'],))
+    """)
     data_for_customer = cursor.fetchall()
     kwargs['ti'].xcom_push(key='data_for_customer', value=data_for_customer)
 
     cursor.execute("""
-        SELECT %s as run_id, inv_id, service_id, days, nb_guests
+        SELECT inv_id, service_id, days, nb_guests
         FROM public.invoice_line;
-    """, (kwargs['run_id'],))
+    """)
     data_for_invoice_line = cursor.fetchall()
     kwargs['ti'].xcom_push(key='data_for_invoice_line', value=data_for_invoice_line)
 
     cursor.execute("""
-        SELECT %s as run_id, inv_id, service_id, days, nb_guests
+        SELECT inv_id, service_id, days, nb_guests
         FROM public.invoice_line;
-    """, (kwargs['run_id'],))
+    """)
     data_for_invoice_line = cursor.fetchall()
     kwargs['ti'].xcom_push(key='data_for_invoice_line', value=data_for_invoice_line)
 
     cursor.execute("""
-        SELECT %s as run_id, region_id, region, country_id
+        SELECT region_id, region, country_id
         FROM public.region;
-    """, (kwargs['run_id'],))
+    """)
     data_for_region = cursor.fetchall()
     kwargs['ti'].xcom_push(key='data_for_region', value=data_for_region)
 
     cursor.execute("""
-        SELECT %s as run_id, sl_id, region_id, sales_revenue
+        SELECT sl_id, region_id, sales_revenue
         FROM public.region_sline;
-    """, (kwargs['run_id'],))
+    """)
     data_for_region_sline = cursor.fetchall()
     kwargs['ti'].xcom_push(key='data_for_region_sline', value=data_for_region_sline)
 
     cursor.execute("""
-        SELECT %s as run_id, res_id, service_id, res_days, future_guests
+        SELECT res_id, service_id, res_days, future_guests
         FROM public.reservation_line;
-     """, (kwargs['run_id'],))
+     """)
     data_for_reservation_line = cursor.fetchall()
     kwargs['ti'].xcom_push(key='data_for_reservation_line', value=data_for_reservation_line)
 
     cursor.execute("""
-        SELECT %s as run_id, res_id, cust_id, res_date
+        SELECT res_id, cust_id, res_date
         FROM public.reservations;
-    """, (kwargs['run_id'],))
+    """)
     data_for_reservation = cursor.fetchall()
     kwargs['ti'].xcom_push(key='data_for_reservation', value=data_for_reservation)
 
     cursor.execute("""
-        SELECT %s as run_id, resort_id, resort, country_id
+        SELECT resort_id, resort, country_id
         FROM public.resort;
-    """, (kwargs['run_id'],))
+    """)
     data_for_resort = cursor.fetchall()
     kwargs['ti'].xcom_push(key='data_for_resort', value=data_for_resort)
 
     cursor.execute("""
-        SELECT %s as run_id, inv_id, cust_id, invoice_date
+        SELECT inv_id, cust_id, invoice_date
         FROM public.sales;
-    """, (kwargs['run_id'],))
+    """)
     data_for_sales = cursor.fetchall()
     kwargs['ti'].xcom_push(key='data_for_sales', value=data_for_sales)
 
     cursor.execute("""
-        SELECT %s as run_id, sales_id, sales_person
+        SELECT sales_id, sales_person
         FROM public.sales_person;
-    """, (kwargs['run_id'],))
+    """)
     data_for_sales_person = cursor.fetchall()
     kwargs['ti'].xcom_push(key='data_for_sales_person', value=data_for_sales_person)
 
     cursor.execute("""
-        SELECT %s as run_id, service_id, service, sl_id, price
+        SELECT service_id, service, sl_id, price
         FROM public.service;
-    """, (kwargs['run_id'],))
+    """)
     data_for_service = cursor.fetchall()
     kwargs['ti'].xcom_push(key='data_for_service', value=data_for_service)
 
     cursor.execute("""
-        SELECT %s as run_id, sl_id, service_line, resort_id
+        SELECT sl_id, service_line, resort_id
         FROM public.service_line;
-     """, (kwargs['run_id'],))
+     """)
     data_for_service_line = cursor.fetchall()
     kwargs['ti'].xcom_push(key='data_for_service_line', value=data_for_service_line)
 
     cursor.close()
     conn.close()
-
-    print(data_for_age_group[0])

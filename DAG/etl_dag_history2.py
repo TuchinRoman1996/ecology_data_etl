@@ -18,7 +18,6 @@ from scripts.load_to_postgres import load_to_stg_age_group, load_to_stg_city, \
     load_to_stg_reservation_line, load_to_stg_reservations, load_to_stg_resort, load_to_stg_sales, \
     load_to_stg_sales_person, load_to_stg_sales_service, load_to_stg_sales_service_line, load_to_stg_region_sline
 
-
 source_db_conn = Connection.get_connection_from_secrets('club_ru')
 source_db_params = {
     'database': source_db_conn.extra_dejson.get('dbname'),
@@ -46,20 +45,37 @@ default_args = {
 
 
 def load_metadata_to_staging(**kwargs):
-    request_id = str(uuid.uuid4())
-    table_name = 'DWH_DSO_2STGmetadata'
-    filename = kwargs['ti'].xcom_pull(key='employee_filename')
-    pg_hook = PostgresHook(postgres_conn_id='test_db')
+    pg_hook = PostgresHook(postgres_conn_id='target_db')
 
-    sql = f"""
-        INSERT INTO stg."DWH_DSO_2STGmetadata"(request_id, table_name, filename)
-        VALUES('{request_id}', '{table_name}', '{filename}');
-    """
-    kwargs['ti'].xcom_push(key='request_id', value=request_id)
-    pg_hook.run(sql)
+    table_names = ["DWH/DSO/3STGmetadata",
+                   "/DWH/AO/0age_group",
+                   "/DWH/AO/0city",
+                   "/DWH/AO/0country",
+                   "/DWH/AO/0customer",
+                   "/DWH/DSO/3STGinvoice_line",
+                   "/DWH/AO/0region",
+                   "/DWH/DSO/3STGregion_sline",
+                   "/DWH/DSO/3STGreservation_line",
+                   "/DWH/DSO/3STGreservations",
+                   "/DWH/AO/0resort",
+                   "/DWH/DSO/3STGsales",
+                   "/DWH/AO/0sales_person",
+                   "/DWH/AO/0service",
+                   "/DWH/DSO/3STGservice_line"
+                   ]
+
+    for table_name in table_names:
+        request_id = str(uuid.uuid4())
+        kwargs['ti'].xcom_push(key=f'request_id_{table_name}', value=request_id)
+
+        pg_hook.run(f"""
+            INSERT INTO stg."DWH/DSO/3STGmetadata"(request_id, status, table_name)
+            VALUES('{request_id}', 'CREATE', '{table_name}')
+        """)
 
 
-with DAG('History_2', default_args=default_args, schedule_interval='@once', schedule=None, concurrency=16) as dag:
+with DAG('History_2', default_args=default_args, schedule_interval='@once', schedule=None, concurrency=16,
+         tags=['club_ru']) as dag:
     extract_from_postgres_ps2 = PythonOperator(
         task_id='extract_from_postgres_ps2',
         python_callable=extract_from_postgresql_club_ru,
@@ -230,7 +246,7 @@ with DAG('History_2', default_args=default_args, schedule_interval='@once', sche
         postgres_conn_id='target_db',
         database='ecology_analytics',
         sql="""
-            truncate dds.sales_growth_by_month;  
+            truncate dds.sales_growth_by_month;
             WITH monthly_sales AS (
                 SELECT
                     EXTRACT(YEAR FROM fs.invoice_date) AS sale_year,
@@ -254,16 +270,16 @@ with DAG('History_2', default_args=default_args, schedule_interval='@once', sche
         sql="""
             truncate dds.average_sales_by_day_of_week;
             INSERT INTO dds.average_sales_by_day_of_week (day_of_week, average_sale)
-            SELECT 
-              CASE 
-                WHEN EXTRACT(DOW FROM fs.invoice_date) = 0 THEN 'Понедельник'
-                WHEN EXTRACT(DOW FROM fs.invoice_date) = 1 THEN 'Вторник'
-                WHEN EXTRACT(DOW FROM fs.invoice_date) = 2 THEN 'Среда'
-                WHEN EXTRACT(DOW FROM fs.invoice_date) = 3 THEN 'Четверг'
-                WHEN EXTRACT(DOW FROM fs.invoice_date) = 4 THEN 'Пятница'
-                WHEN EXTRACT(DOW FROM fs.invoice_date) = 5 THEN 'Суббота'
-                WHEN EXTRACT(DOW FROM fs.invoice_date) = 6 THEN 'Воскресенье'
-                ELSE 'Неизвестный день' 
+            SELECT
+              CASE
+                WHEN EXTRACT(DOW FROM fs.invoice_date) = 0 THEN 'Воскресенье'
+                WHEN EXTRACT(DOW FROM fs.invoice_date) = 1 THEN 'Понедельник'
+                WHEN EXTRACT(DOW FROM fs.invoice_date) = 2 THEN 'Вторник'
+                WHEN EXTRACT(DOW FROM fs.invoice_date) = 3 THEN 'Среда'
+                WHEN EXTRACT(DOW FROM fs.invoice_date) = 4 THEN 'Четверг'
+                WHEN EXTRACT(DOW FROM fs.invoice_date) = 5 THEN 'Пятница'
+                WHEN EXTRACT(DOW FROM fs.invoice_date) = 6 THEN 'Суббота'
+                ELSE 'Неизвестный день'
               END AS day_of_week,
               AVG(fs.price) AS average_sale
             FROM nds.fact_sale fs
@@ -366,20 +382,20 @@ with DAG('History_2', default_args=default_args, schedule_interval='@once', sche
         """
     )
 
-    extract_from_postgres_ps2 >> load_to_stg_age_group
-    extract_from_postgres_ps2 >> load_to_stg_city
-    extract_from_postgres_ps2 >> load_to_stg_country >> load_dim_country >> load_fact_sale_data
-    extract_from_postgres_ps2 >> load_to_stg_customer >> load_dim_customer >> load_fact_sale_data
-    extract_from_postgres_ps2 >> load_to_stg_invoice_line >> load_fact_sale_data
-    extract_from_postgres_ps2 >> load_to_stg_region
-    extract_from_postgres_ps2 >> load_to_stg_region_sline
-    extract_from_postgres_ps2 >> load_to_stg_reservation_line
-    extract_from_postgres_ps2 >> load_to_stg_reservations
-    extract_from_postgres_ps2 >> load_to_stg_resort >> load_dim_resort >> load_fact_sale_data
-    extract_from_postgres_ps2 >> load_to_stg_sales
-    extract_from_postgres_ps2 >> load_to_stg_sales_person >> load_dim_seller >> load_fact_sale_data
-    extract_from_postgres_ps2 >> load_to_stg_sales_service >> load_dim_service >> load_fact_sale_data
-    extract_from_postgres_ps2 >> load_to_stg_sales_service_line >> load_dim_service_line >> load_fact_sale_data
+    extract_from_postgres_ps2 >> load_metadata_to_staging_task >> load_to_stg_age_group
+    extract_from_postgres_ps2 >> load_metadata_to_staging_task >> load_to_stg_city
+    extract_from_postgres_ps2 >> load_metadata_to_staging_task >> load_to_stg_country >> load_dim_country >> load_fact_sale_data
+    extract_from_postgres_ps2 >> load_metadata_to_staging_task >> load_to_stg_customer >> load_dim_customer >> load_fact_sale_data
+    extract_from_postgres_ps2 >> load_metadata_to_staging_task >> load_to_stg_invoice_line >> load_fact_sale_data
+    extract_from_postgres_ps2 >> load_metadata_to_staging_task >> load_to_stg_region
+    extract_from_postgres_ps2 >> load_metadata_to_staging_task >> load_to_stg_region_sline
+    extract_from_postgres_ps2 >> load_metadata_to_staging_task >> load_to_stg_reservation_line
+    extract_from_postgres_ps2 >> load_metadata_to_staging_task >> load_to_stg_reservations
+    extract_from_postgres_ps2 >> load_metadata_to_staging_task >> load_to_stg_resort >> load_dim_resort >> load_fact_sale_data
+    extract_from_postgres_ps2 >> load_metadata_to_staging_task >> load_to_stg_sales
+    extract_from_postgres_ps2 >> load_metadata_to_staging_task >> load_to_stg_sales_person >> load_dim_seller >> load_fact_sale_data
+    extract_from_postgres_ps2 >> load_metadata_to_staging_task >> load_to_stg_sales_service >> load_dim_service >> load_fact_sale_data
+    extract_from_postgres_ps2 >> load_metadata_to_staging_task >> load_to_stg_sales_service_line >> load_dim_service_line >> load_fact_sale_data
     load_fact_sale_data >> load_to_dds_sales_with_moving_average
     load_fact_sale_data >> load_to_dds_sales_growth_by_month
     load_fact_sale_data >> load_to_dds_average_sales_by_day_of_week
@@ -389,5 +405,3 @@ with DAG('History_2', default_args=default_args, schedule_interval='@once', sche
     load_fact_sale_data >> load_to_dds_customer_age_groups
     load_fact_sale_data >> load_to_dds_sales_by_country_and_region
     load_fact_sale_data >> load_to_dds_sales_by_employee
-
-
