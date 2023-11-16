@@ -11,9 +11,11 @@ from airflow.utils.decorators import apply_defaults
 from lxml import etree
 from io import BytesIO
 
+# Определяем таблицу загрузки
 table_name = 'DWH_AO_0regions'
 
 
+# Опеределяем функцию для обновления метаданных
 def update_metadata_status(status, request_id, pg_hook):
     print(f'status: {status}\nrequest_id: {request_id}\npg_hook: {pg_hook}')
     try:
@@ -27,6 +29,7 @@ def update_metadata_status(status, request_id, pg_hook):
         print(f"Failed to update metadata status: {str(e)}")
 
 
+# Определяем функцию для получения метаданных
 def get_metadata(table, **kwargs):
     pg_hook = PostgresHook('test_db')
     metadata = pg_hook.get_first(f"""
@@ -40,21 +43,27 @@ def get_metadata(table, **kwargs):
     kwargs['ti'].xcom_push(key='filename', value=metadata[1])
 
 
+# Определяем функцию для загрузки данных в справочник regions
 def load_set_regions_to_stg(ftp_conn_id, postgres_conn_id, batch_size, **kwargs):
+    # Получаем метаданные
     request_id = kwargs['ti'].xcom_pull(key='request_id')
     filename = kwargs['ti'].xcom_pull(key='filename')
 
+    # Исползуем преднастроенные подулючения
     pg_hook = PostgresHook(postgres_conn_id)
     ftp_hook = FTPHook(ftp_conn_id)
 
     with BytesIO() as xml_buffer:
+        # Читаем файл и записываем в буфер
         ftp_hook.retrieve_file(f'for_chtd/test_kxd_glavnivc/В_очереди/{filename}', xml_buffer)
-        xml_buffer.seek(0)
+        xml_buffer.seek(0)  # Передвигаем указатель в начало буфера
 
+        # Определяем парсер
         context = etree.iterparse(xml_buffer, events=('end',), tag='record')
 
         records = []
 
+        # Осуществляем пакетную вставку
         try:
             for event, element in context:
                 record_data = process_record(element, request_id)
@@ -74,6 +83,7 @@ def load_set_regions_to_stg(ftp_conn_id, postgres_conn_id, batch_size, **kwargs)
             raise AirflowException(f"Ошибка загрузки Данных в таблицу: {str(e)}")
 
 
+# Парсим наш XML
 def process_record(record_element, request_id):
     record_data = {
         'request_id': f'{request_id}',
@@ -90,6 +100,7 @@ def process_record(record_element, request_id):
     return record_data
 
 
+# Вставляем данные в таблицу
 def insert_records_to_db(records, pg_hook, batch_size, table):
     data_to_insert = [(
         record['request_id'], record['region_name'], record['id_region'], record['region_parent'],
@@ -106,6 +117,7 @@ def insert_records_to_db(records, pg_hook, batch_size, table):
     )
 
 
+# Создаем оператор для перемещения файла из одной папки в другую
 class FTPMoveFileOperator(BaseOperator):
     @apply_defaults
     def __init__(self, source_path, destination_path, ftp_conn_id, *args, **kwargs):
@@ -123,6 +135,7 @@ class FTPMoveFileOperator(BaseOperator):
             self.log.info(f"Файл {self.source_path} перемещен в {self.destination_path}")
 
 
+# Определяем стандартные аргументы
 default_args = {
     'owner': 'RTuchin',
     'depends_on_past': False,
@@ -130,8 +143,11 @@ default_args = {
     'catchup': 'false'
 }
 
+# Определяем DAG
 with DAG('load_set_regions_from_xml_to_stg', default_args=default_args, schedule_interval=None,
          catchup=False, tags=['test_db']) as dag:
+
+    # Получаем метаданные
     get_metadata_task = PythonOperator(
         task_id='get_metadata',
         provide_context=True,
@@ -141,6 +157,7 @@ with DAG('load_set_regions_from_xml_to_stg', default_args=default_args, schedule
         }
     )
 
+    # Загружаем данные в таблицу БД
     load_regions_to_stg = PythonOperator(
         task_id='load_regions_to_stg',
         python_callable=load_set_regions_to_stg,
@@ -151,12 +168,14 @@ with DAG('load_set_regions_from_xml_to_stg', default_args=default_args, schedule
         },
     )
 
+    # Обновляем статус метаданных
     update_metadata_status_success_task = PythonOperator(
         task_id='update_metadata_status_success',
         python_callable=update_metadata_status,
         op_args=['SUCCESS', '{{ ti.xcom_pull(key="request_id") }}', PostgresHook('test_db')]
     )
 
+    # Перемещаем файл
     ftp_moved_file_task = FTPMoveFileOperator(
         task_id='ftp_moved_file',
         source_path='for_chtd/test_kxd_glavnivc/В_очереди/',
@@ -164,6 +183,7 @@ with DAG('load_set_regions_from_xml_to_stg', default_args=default_args, schedule
         ftp_conn_id='ftp_chtd'
     )
 
+    # Загружаем данные на слой nds
     load_set_regions_from_stg_to_nds_task = PostgresOperator(
         task_id='load_set_regions_from_stg_to_nds',
         postgres_conn_id='test_db',
@@ -203,6 +223,7 @@ with DAG('load_set_regions_from_xml_to_stg', default_args=default_args, schedule
         """
     )
 
+    # Триггерим даг моноиторинга
     trigger_ftp_monitoring_dag_task = TriggerDagRunOperator(
         task_id='trigger_ftp_monitoring_dag',
         trigger_dag_id='ftp_monitoring_dag',

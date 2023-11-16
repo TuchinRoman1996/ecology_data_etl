@@ -2,6 +2,7 @@ from airflow import DAG
 from airflow.providers.postgres.operators.postgres import PostgresOperator
 from airflow.utils.dates import days_ago
 
+# Определяем стандартный аргументы DAG
 default_args = {
     'owner': 'RTuchin',
     'depends_on_past': False,
@@ -9,9 +10,11 @@ default_args = {
     'catchup': 'false'
 }
 
+# Определяем DAG
 with DAG('load_employees_from_stg_to_nds', default_args=default_args, schedule_interval=None, catchup=False,
          tags=['test_db']) as dag:
 
+    # Определяем и вставляем новые данные для DWH_DSO_3NDSemployees
     insert_new_data_task = PostgresOperator(
         task_id='insert_new_data',
         postgres_conn_id='test_db',
@@ -68,6 +71,7 @@ with DAG('load_employees_from_stg_to_nds', default_args=default_args, schedule_i
         """
     )
 
+    # Определяем и обновляем данные для DWH_DSO_3NDSemployees
     update_data_task = PostgresOperator(
         task_id='update_data',
         postgres_conn_id='test_db',
@@ -149,6 +153,7 @@ with DAG('load_employees_from_stg_to_nds', default_args=default_args, schedule_i
         """
     )
 
+    # Определяем и вставляем новые данные для DWH_AO_TNDSemployees
     insert_into_TNDSemployees_task = PostgresOperator(
         task_id='insert_into_TNDSemployees',
         postgres_conn_id='test_db',
@@ -180,6 +185,7 @@ with DAG('load_employees_from_stg_to_nds', default_args=default_args, schedule_i
         """
     )
 
+    # Обновляем данные для  DWH_DSO_2NDSemployees
     insert_into_2NDSemployees_task = PostgresOperator(
         task_id='insert_into_2NDSemployees',
         postgres_conn_id='test_db',

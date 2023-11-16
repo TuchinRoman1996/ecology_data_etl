@@ -11,9 +11,11 @@ from airflow.utils.decorators import apply_defaults
 from lxml import etree
 from io import BytesIO
 
+# Определяем имя таблицы в переменную
 table_name = 'DWH_AO_0companies'
 
 
+# Обновляем таблицу с метаданными с заданным статусом для заданного request_id
 def update_metadata_status(status, request_id, pg_hook):
     print(f'status: {status}\nrequest_id: {request_id}\npg_hook: {pg_hook}')
     try:
@@ -27,6 +29,7 @@ def update_metadata_status(status, request_id, pg_hook):
         print(f"Failed to update metadata status: {str(e)}")
 
 
+# Получаем метаданные
 def get_metadata(table, **kwargs):
     pg_hook = PostgresHook('test_db')
     metadata = pg_hook.get_first(f"""
@@ -40,22 +43,28 @@ def get_metadata(table, **kwargs):
     kwargs['ti'].xcom_push(key='filename', value=metadata[1])
 
 
+# Определяем функцию которая будет загружать данные из файла в БД
 def load_set_companies_to_stg(ftp_conn_id, postgres_conn_id, batch_size, **kwargs):
+    # Получаем метаданные
     request_id = kwargs['ti'].xcom_pull(key='request_id')
     filename = kwargs['ti'].xcom_pull(key='filename')
 
+    # Используем настроенное подключение к FTP и PostgreSQL
     pg_hook = PostgresHook(postgres_conn_id)
     ftp_hook = FTPHook(ftp_conn_id)
 
     with BytesIO() as xml_buffer:
+        # Загружаем файл буфер
         ftp_hook.retrieve_file(f'for_chtd/test_kxd_glavnivc/В_очереди/{filename}', xml_buffer)
         xml_buffer.seek(0)
 
+        # Определяем парсер
         context = etree.iterparse(xml_buffer, events=('end',), tag='record')
 
         records = []
 
         try:
+            # Формируем список записей на вставку
             for event, element in context:
                 record_data = process_record(element, request_id)
                 records.append(record_data)
@@ -74,6 +83,7 @@ def load_set_companies_to_stg(ftp_conn_id, postgres_conn_id, batch_size, **kwarg
             raise AirflowException(f"Ошибка загрузки Данных в таблицу: {str(e)}")
 
 
+# Парсим xml
 def process_record(record_element, request_id):
     record_data = {
         'request_id': f'{request_id}',
@@ -91,6 +101,7 @@ def process_record(record_element, request_id):
     return record_data
 
 
+# Вставляем данные в БД
 def insert_records_to_db(records, pg_hook, batch_size, table):
     data_to_insert = [(
         record['request_id'], record['id_company'], record['company_name'], record['company_parent'], record['id_region'],
@@ -107,6 +118,7 @@ def insert_records_to_db(records, pg_hook, batch_size, table):
     )
 
 
+# Определяем оператор для перемещения файла на FTP
 class FTPMoveFileOperator(BaseOperator):
     @apply_defaults
     def __init__(self, source_path, destination_path, ftp_conn_id, *args, **kwargs):
@@ -124,6 +136,7 @@ class FTPMoveFileOperator(BaseOperator):
             self.log.info(f"Файл {self.source_path} перемещен в {self.destination_path}")
 
 
+# Определяем стандартные аргументы
 default_args = {
     'owner': 'Rtuchin',
     'depends_on_past': False,
@@ -131,9 +144,11 @@ default_args = {
     'catchup': 'false'
 }
 
+# Определяем DAG
 with DAG('load_set_companies_from_xml_to_stg', default_args=default_args, schedule_interval=None,
          catchup=False, tags=['test_db']) as dag:
 
+    # Получаем метаданные
     get_metadata_task = PythonOperator(
         task_id='get_metadata',
         provide_context=True,
@@ -143,6 +158,7 @@ with DAG('load_set_companies_from_xml_to_stg', default_args=default_args, schedu
         }
     )
 
+    # Загружаем данные из файла в БД
     load_companies_to_stg = PythonOperator(
         task_id='load_companies_to_stg',
         python_callable=load_set_companies_to_stg,
@@ -153,6 +169,7 @@ with DAG('load_set_companies_from_xml_to_stg', default_args=default_args, schedu
         },
     )
 
+    # Перемещаем файл
     ftp_moved_file_task = FTPMoveFileOperator(
         task_id='ftp_moved_file',
         source_path='for_chtd/test_kxd_glavnivc/В_очереди/',
@@ -160,6 +177,7 @@ with DAG('load_set_companies_from_xml_to_stg', default_args=default_args, schedu
         ftp_conn_id='ftp_chtd'
     )
 
+    # ВЫполняем вставку в DWH_AO_NDStype_company
     load_set_companies_type_from_stg_to_nds_task = PostgresOperator(
         task_id='load_set_companies_type_from_stg_to_nds',
         postgres_conn_id='test_db',
@@ -178,6 +196,7 @@ with DAG('load_set_companies_from_xml_to_stg', default_args=default_args, schedu
             """
     )
 
+    # Выполняем вставку в DWH_AO_NDStype_industry
     load_set_companies_industry_from_stg_to_nds_task = PostgresOperator(
         task_id='load_set_companies_industry_from_stg_to_nds',
         postgres_conn_id='test_db',
@@ -196,6 +215,7 @@ with DAG('load_set_companies_from_xml_to_stg', default_args=default_args, schedu
         """
     )
 
+    # Выполняем вставку в DWH_AO_HNDScompanies
     load_set_companies_from_stg_to_nds_task = PostgresOperator(
         task_id='load_set_companies_from_stg_to_nds',
         postgres_conn_id='test_db',
@@ -227,12 +247,14 @@ with DAG('load_set_companies_from_xml_to_stg', default_args=default_args, schedu
             """
     )
 
+    # Обновляем метаданные
     update_metadata_status_success_task = PythonOperator(
         task_id='update_metadata_status_success',
         python_callable=update_metadata_status,
         op_args=['SUCCESS', '{{ ti.xcom_pull(key="request_id") }}', PostgresHook('test_db')]
     )
 
+    # Триггерим даг для мониторинга новых файлов
     trigger_ftp_monitoring_dag_task = TriggerDagRunOperator(
         task_id='trigger_ftp_monitoring_dag',
         trigger_dag_id='ftp_monitoring_dag',
