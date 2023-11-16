@@ -56,7 +56,7 @@ class CustomFTPSensor(BaseSensorOperator):
 
         try:
             # Получение списка файлов с FTP
-            ftp_files = set(self.ftp_hook.list_directory("for_chtd/test_kxd_glavnivc/В_очереди"))
+            ftp_files = set(self.ftp_hook.list_directory("for_chtd/test_kxd_glavnivc/Queue"))
             print(f'Список файлов в FTP:\n{ftp_files}')
             # Вычитаем список загруженных файлов из файлов на FTP
             new_files = ftp_files - self.uploaded_files

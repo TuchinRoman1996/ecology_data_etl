@@ -55,7 +55,7 @@ def load_set_companies_to_stg(ftp_conn_id, postgres_conn_id, batch_size, **kwarg
 
     with BytesIO() as xml_buffer:
         # Загружаем файл буфер
-        ftp_hook.retrieve_file(f'for_chtd/test_kxd_glavnivc/В_очереди/{filename}', xml_buffer)
+        ftp_hook.retrieve_file(f'for_chtd/test_kxd_glavnivc/Queue/{filename}', xml_buffer)
         xml_buffer.seek(0)
 
         # Определяем парсер
@@ -172,8 +172,8 @@ with DAG('load_set_companies_from_xml_to_stg', default_args=default_args, schedu
     # Перемещаем файл
     ftp_moved_file_task = FTPMoveFileOperator(
         task_id='ftp_moved_file',
-        source_path='for_chtd/test_kxd_glavnivc/В_очереди/',
-        destination_path='for_chtd/test_kxd_glavnivc/Архив/',
+        source_path='for_chtd/test_kxd_glavnivc/Queue/',
+        destination_path='for_chtd/test_kxd_glavnivc/Archive/',
         ftp_conn_id='ftp_chtd'
     )
 

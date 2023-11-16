@@ -64,7 +64,7 @@ def process_large_xml_and_insert_to_db(ftp_conn_id, postgres_conn_id, batch_size
 
     with BytesIO() as xml_buffer:
         # Осуществляем потоковое чтение из файла и записываем полученные данные в буфер с заданным размером
-        ftp_hook.retrieve_file(f'for_chtd/test_kxd_glavnivc/В_очереди/{filename}', xml_buffer,
+        ftp_hook.retrieve_file(f'for_chtd/test_kxd_glavnivc/Queue/{filename}', xml_buffer,
                                block_size=batch_size * 470)
         xml_buffer.seek(0)  # Передвигамем указатель в начало буфера
 
@@ -196,8 +196,8 @@ with DAG('load_employees_from_xml_to_stg_stream', default_args=default_args,
     # Опеределяем задачу для перемещения файла из одной дирректории в другую
     ftp_moved_file_task = FTPMoveFileOperator(
         task_id='ftp_moved_file',
-        source_path='for_chtd/test_kxd_glavnivc/В_очереди/',
-        destination_path='for_chtd/test_kxd_glavnivc/Архив/',
+        source_path='for_chtd/test_kxd_glavnivc/Queue/',
+        destination_path='for_chtd/test_kxd_glavnivc/Archive/',
         ftp_conn_id='ftp_chtd'
     )
 
