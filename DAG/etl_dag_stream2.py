@@ -101,7 +101,7 @@ target_db_params = {
 }
 
 default_args = {
-    'owner': 'Username',
+    'owner': 'bi_master',
     'depends_on_past': False,
     'start_date': days_ago(0),
     'catchup': 'false'

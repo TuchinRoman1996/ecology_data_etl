@@ -10,7 +10,7 @@ import uuid
 
 # Определяем стандартные параметры дага
 default_args = {
-    'owner': 'RTuchin',
+    'owner': 'bi_master',
     'depends_on_past': False,
     'start_date': days_ago(0),
     'catchup': 'false'

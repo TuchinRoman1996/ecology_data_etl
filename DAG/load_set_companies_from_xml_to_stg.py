@@ -138,7 +138,7 @@ class FTPMoveFileOperator(BaseOperator):
 
 # Определяем стандартные аргументы
 default_args = {
-    'owner': 'Rtuchin',
+    'owner': 'bi_master',
     'depends_on_past': False,
     'start_date': days_ago(0),
     'catchup': 'false'
